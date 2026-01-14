@@ -1,0 +1,381 @@
+// ==UserScript==
+// @name         全网摸鱼助手 (Boss Key) - 真实业务界面版
+// @name:en      Global Boss Key - Fake Interface (API Docs/Monitor)
+// @namespace    http://tampermonkey.net/
+// @version      1.0.0
+// @description  双击Ctrl键，瞬间显示全屏的真实企业级接口文档（API Reference），带左侧菜单联动、自动抢焦点、无感知交互。支持自定义标题，适合程序员摸鱼使用。
+// @description:en Double-click Ctrl to show a realistic enterprise API documentation (Swagger/Knife4j) overlay. Includes 8 business modules, auto-focus, and semantic data.
+// @author       MoyuMaster
+// @match        *://*/*
+// @grant        none
+// @license      MIT
+// @keywords     摸鱼, boss key, 伪装, 接口文档, swagger, knife4j
+// @run-at       document-start
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // 这是一个摸鱼脚本，Console日志已静默
+    // console.log("🔥 生产环境文档 v11.0 (Safe Mode) 加载中...");
+
+    let overlay = null;
+
+    // ========================================================================
+    // 🛡️ 安全策略：温和的焦点管理
+    // ========================================================================
+    function safeFocus() {
+        const active = document.activeElement;
+        const isInput = active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable;
+        
+        if (!isInput && document.body) {
+            if (!document.body.getAttribute('tabindex')) {
+                document.body.setAttribute('tabindex', '-1');
+                document.body.style.outline = 'none';
+            }
+            if (active === document.body) return;
+            document.body.focus();
+        }
+    }
+
+    window.addEventListener('load', safeFocus);
+    window.addEventListener('mousemove', safeFocus, { once: true });
+
+    // ========================================================================
+    // 1. 业务配置
+    // ========================================================================
+    const MODULES = [
+        { 
+            id: "ums", name: "用户中心 (User)", prefix: "/ums", 
+            nouns: ["user", "role", "menu", "dept", "log"],
+            fields: { str: "username", num: "userId", date: "lastLoginTime" }
+        },
+        { 
+            id: "oms", name: "订单管理 (Order)", prefix: "/oms", 
+            nouns: ["order", "cart", "return", "invoice", "setting"],
+            fields: { str: "orderNo", num: "payAmount", date: "createTime" }
+        },
+        { 
+            id: "pms", name: "商品中心 (Product)", prefix: "/pms", 
+            nouns: ["spu", "sku", "brand", "category", "attr"],
+            fields: { str: "productName", num: "price", date: "publishTime" }
+        },
+        { 
+            id: "sms", name: "营销中心 (Marketing)", prefix: "/sms", 
+            nouns: ["coupon", "flash", "advertise", "topic"],
+            fields: { str: "activityName", num: "discount", date: "endTime" }
+        },
+        { 
+            id: "pay", name: "支付网关 (Payment)", prefix: "/pay", 
+            nouns: ["channel", "flow", "refund", "config"],
+            fields: { str: "tradeNo", num: "totalFee", date: "payTime" }
+        },
+        { 
+            id: "wms", name: "库存管理 (Warehouse)", prefix: "/wms", 
+            nouns: ["stock", "warehouse", "delivery", "check"],
+            fields: { str: "batchNo", num: "stockNum", date: "inTime" }
+        },
+        { 
+            id: "rpt", name: "数据报表 (Report)", prefix: "/report", 
+            nouns: ["daily", "monthly", "sales", "user_analysis"],
+            fields: { str: "reportName", num: "statValue", date: "statDate" }
+        },
+        { 
+            id: "mon", name: "系统监控 (Monitor)", prefix: "/actuator", 
+            nouns: ["server", "redis", "jvm", "job"],
+            fields: { str: "metric", num: "value", date: "timestamp" }
+        }
+    ];
+
+    const ACTIONS = [
+        { suffix: "page", method: "GET", desc: "分页查询列表", type: "list" },
+        { suffix: "list", method: "GET", desc: "查询全部数据", type: "list" },
+        { suffix: "info", method: "GET", desc: "获取详细信息", type: "detail" },
+        { suffix: "detail", method: "GET", desc: "查询详情", type: "detail" },
+        { suffix: "check", method: "GET", desc: "数据校验", type: "detail" },
+        { suffix: "tree", method: "GET", desc: "获取树形结构", type: "list" },
+        { suffix: "options", method: "GET", desc: "获取下拉选项", type: "list" },
+        { suffix: "create", method: "POST", desc: "新增数据", type: "form" },
+        { suffix: "update", method: "POST", desc: "更新数据", type: "form" },
+        { suffix: "save", method: "POST", desc: "保存草稿", type: "form" },
+        { suffix: "status", method: "POST", desc: "修改状态", type: "form" },
+        { suffix: "audit", method: "POST", desc: "审核通过", type: "form" },
+        { suffix: "remove", method: "DELETE", desc: "逻辑删除", type: "form" }
+    ];
+
+    // ========================================================================
+    // 2. 内容生成器
+    // ========================================================================
+    function generateResponse(moduleConfig, actionType) {
+        const f = moduleConfig.fields;
+        if (actionType === 'list') {
+            return `{
+  "code": 200,
+  "msg": "success",
+  "data": {
+    "total": ${Math.floor(Math.random() * 5000) + 100},
+    "size": 20,
+    "current": 1,
+    "records": [
+      {
+        "id": 10001,
+        "${f.str}": "TEST_DATA_001",
+        "${f.num}": ${Math.floor(Math.random() * 1000)},
+        "status": 1,
+        "${f.date}": "2026-01-14 10:00:00"
+      },
+      {
+        "id": 10002,
+        "${f.str}": "TEST_DATA_002",
+        "${f.num}": ${Math.floor(Math.random() * 1000)},
+        "status": 0,
+        "${f.date}": "2026-01-14 11:30:00"
+      }
+    ]
+  }
+}`;
+        }
+        if (actionType === 'detail') {
+            return `{
+  "code": 200,
+  "msg": "success",
+  "data": {
+    "id": 123456,
+    "${f.str}": "Detail_Info_Block",
+    "${f.num}": 99.99,
+    "remark": "Production Data Structure",
+    "createBy": "admin",
+    "${f.date}": "2026-01-14 14:20:00"
+  }
+}`;
+        }
+        return `{
+  "code": 200,
+  "msg": "操作成功",
+  "data": true,
+  "traceId": "0a${Math.random().toString(16).substr(2, 8)}"
+}`;
+    }
+
+    function generateParams(actionType) {
+        if (actionType === 'list') {
+            return `
+            <tr><td>pageNum</td><td>Integer</td><td class="req">是</td><td>页码</td></tr>
+            <tr><td>pageSize</td><td>Integer</td><td class="req">是</td><td>条数</td></tr>
+            <tr><td>keyword</td><td>String</td><td>否</td><td>搜索关键字</td></tr>
+            <tr><td>startTime</td><td>String</td><td>否</td><td>开始时间</td></tr>`;
+        }
+        if (actionType === 'detail') {
+            return `<tr><td>id</td><td>Long</td><td class="req">是</td><td>主键ID</td></tr>`;
+        }
+        return `<tr><td colspan="4" style="text-align:center;color:#999">Body JSON 参数见下文</td></tr>`;
+    }
+
+    // ========================================================================
+    // 3. UI 渲染逻辑
+    // ========================================================================
+    function createOverlay() {
+        overlay = document.createElement('div');
+        overlay.id = "moyu-knife";
+        
+        let menuHtml = '';
+        let mainHtml = `<div class="doc-info">
+            <h1 style="font-size:24px;margin-bottom:10px;">Enterprise API Documentation</h1>
+            <div class="meta">
+                <span>Version: 4.2.0-RELEASE</span>
+                <span>Env: <b style="color:#52c41a">PROD</b></span>
+                <span>Update: 2026-01-14</span>
+            </div>
+            <div style="margin-top:15px;font-size:12px;color:#666;">
+                Generated by Swagger. Internal use only. Unauthorized access is prohibited.
+            </div>
+        </div>`;
+
+        MODULES.forEach((mod, modIdx) => {
+            const activeClass = modIdx === 0 ? 'active' : '';
+            menuHtml += `<div class="menu-item ${activeClass}" data-target="group-${modIdx}">${mod.name}</div>`;
+            
+            let apisHtml = '';
+            mod.nouns.forEach(noun => {
+                const count = 2 + Math.floor(Math.random() * 3);
+                const shuffledActions = ACTIONS.sort(() => 0.5 - Math.random()).slice(0, count);
+
+                shuffledActions.forEach(act => {
+                    const path = `${mod.prefix}/${noun}/${act.suffix}`; 
+                    apisHtml += `
+                        <div class="api-card">
+                            <div class="api-head">
+                                <span class="badge ${act.method}">${act.method}</span>
+                                <span class="path">${path}</span>
+                                <span class="desc">${noun} - ${act.desc}</span>
+                            </div>
+                            <div class="api-body">
+                                <div class="section-title">Request Headers</div>
+                                <table class="param-table">
+                                    <tr><th>Header</th><th>Value</th><th>Required</th></tr>
+                                    <tr><td>Authorization</td><td>Bearer {token}</td><td class="req">YES</td></tr>
+                                </table>
+
+                                <div class="section-title">Parameters</div>
+                                <table class="param-table">
+                                    <tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr>
+                                    ${generateParams(act.type)}
+                                </table>
+
+                                ${act.type === 'form' ? `
+                                <div class="section-title">Request Body</div>
+                                <div class="code-box">{
+  "remark": "string",
+  "status": 1
+}</div>` : ''}
+
+                                <div class="section-title">Response</div>
+                                <div class="code-box">${generateResponse(mod, act.type)}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+            });
+
+            mainHtml += `
+                <div id="group-${modIdx}" class="group-wrap">
+                    <div class="group-title">${mod.name}</div>
+                    ${apisHtml}
+                </div>
+            `;
+        });
+
+        overlay.innerHTML = STYLES + `
+            <div class="sidebar">
+                <div class="sidebar-logo">API Reference</div>
+                <div class="menu-list">${menuHtml}</div>
+            </div>
+            <div class="main-content">
+                ${mainHtml}
+            </div>
+        `;
+
+        (document.documentElement || document.body).appendChild(overlay);
+        bindEvents(overlay);
+    }
+
+    function bindEvents(el) {
+        el.querySelector('.menu-list').addEventListener('click', (e) => {
+            if (e.target.classList.contains('menu-item')) {
+                el.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
+                e.target.classList.add('active');
+                const target = document.getElementById(e.target.dataset.target);
+                if(target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+            }
+        });
+
+        el.querySelector('.main-content').addEventListener('click', (e) => {
+            const head = e.target.closest('.api-head');
+            if (head) head.parentElement.classList.toggle('open');
+        });
+
+        el.addEventListener('wheel', e => e.stopPropagation(), {passive: false});
+        el.addEventListener('keydown', e => e.stopPropagation());
+        el.addEventListener('keyup', e => e.stopPropagation());
+        el.addEventListener('click', () => { if(document.body) document.body.focus(); });
+    }
+
+    // ========================================================================
+    // 4. 样式表
+    // ========================================================================
+    const STYLES = `
+        <style>
+            #moyu-knife {
+                font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+                background: #f0f2f5; color: #333;
+                width: 100vw; height: 100vh;
+                position: fixed; top: 0; left: 0;
+                z-index: 2147483647 !important;
+                display: none; display: flex; font-size: 14px;
+            }
+            .sidebar { width: 260px; background: #001529; color: #a6adb4; display: flex; flex-direction: column; box-shadow: 2px 0 8px 0 rgba(29,35,41,.05); }
+            .sidebar-logo { height: 64px; line-height: 64px; padding-left: 24px; font-weight: 600; color: #fff; font-size: 20px; background: #002140; }
+            .menu-list { flex: 1; overflow-y: auto; padding-top: 10px; }
+            .menu-item { padding: 12px 24px; cursor: pointer; transition: all 0.3s; margin-bottom: 4px; }
+            .menu-item:hover { color: #fff; }
+            .menu-item.active { background-color: #1890ff; color: #fff; }
+
+            .main-content { flex: 1; overflow-y: auto; padding: 24px; scroll-behavior: smooth; }
+            .doc-info { background: #fff; padding: 24px; margin-bottom: 24px; }
+            .meta span { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; color: #666; font-size: 12px; margin-right: 10px; }
+
+            .group-wrap { margin-bottom: 40px; }
+            .group-title { font-size: 20px; margin-bottom: 16px; padding-left: 10px; border-left: 4px solid #1890ff; font-weight: 500; }
+
+            .api-card { background: #fff; margin-bottom: 12px; border: 1px solid #e8e8e8; border-radius: 2px; }
+            .api-head { padding: 12px 16px; cursor: pointer; display: flex; align-items: center; background: #fafafa; transition: 0.2s; }
+            .api-head:hover { background: #f0f7ff; }
+            .api-card.open .api-head { border-bottom: 1px solid #e8e8e8; background: #e6f7ff; }
+            .api-body { display: none; padding: 24px; }
+            .api-card.open .api-body { display: block; }
+
+            .badge { padding: 2px 8px; border-radius: 3px; color: #fff; font-weight: bold; font-size: 11px; margin-right: 10px; min-width: 50px; text-align: center; }
+            .GET { background: #096dd9; }
+            .POST { background: #52c41a; }
+            .DELETE { background: #ff4d4f; }
+
+            .path { font-family: Consolas, monospace; font-weight: 600; font-size: 15px; margin-right: 15px; flex: 1; }
+            .desc { color: #999; font-size: 13px; }
+            .section-title { font-weight: bold; margin: 15px 0 10px; font-size: 13px; border-left: 3px solid #ddd; padding-left: 8px; }
+            .code-box { background: #282c34; color: #dcdfe4; padding: 15px; border-radius: 4px; font-family: Consolas, monospace; white-space: pre-wrap; font-size: 12px; }
+            
+            .param-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+            .param-table th { background: #fafafa; text-align: left; padding: 8px; border: 1px solid #e8e8e8; color: #666; }
+            .param-table td { padding: 8px; border: 1px solid #e8e8e8; }
+            .req { color: red; }
+            
+            ::-webkit-scrollbar { width: 8px; height: 8px; }
+            ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+            ::-webkit-scrollbar-track { background: transparent; }
+        </style>
+    `;
+
+    // ========================================================================
+    // 5. 按键监听
+    // ========================================================================
+    function toggle() {
+        if (!overlay) createOverlay();
+        if (overlay.style.display === 'none') {
+            overlay.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+            if(document.body) {
+                if(!document.body.getAttribute('tabindex')) document.body.setAttribute('tabindex', '-1');
+                document.body.focus();
+                document.body.style.outline = 'none';
+            }
+        } else {
+            overlay.style.display = 'none';
+            document.body.style.overflow = '';
+        }
+    }
+
+    let ctrlTapCount = 0;
+    let ctrlTimer = null;
+    let otherKeyPressed = false;
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Control') {
+            otherKeyPressed = true;
+            ctrlTapCount = 0;
+        } else if (!e.repeat) {
+            otherKeyPressed = false;
+        }
+        if (e.key === 'Escape' && overlay && overlay.style.display === 'flex') toggle();
+    }, false);
+
+    document.addEventListener('keyup', (e) => {
+        if (e.key === 'Control') {
+            if (otherKeyPressed) { ctrlTapCount = 0; return; }
+            ctrlTapCount++;
+            if (ctrlTapCount === 2) { toggle(); ctrlTapCount = 0; }
+            clearTimeout(ctrlTimer);
+            ctrlTimer = setTimeout(() => { ctrlTapCount = 0; }, 350);
+        }
+    }, false);
+
+})();
